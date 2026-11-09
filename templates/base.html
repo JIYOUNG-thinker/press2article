@@ -4,23 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}보도자료 → 기사{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% block header %}
   <header class="masthead">
     <div class="date" id="today"></div>
-    <h1><a href="{{ url_for('index') }}">보도자료<span>→</span>기사</a></h1>
-    <p class="tagline">보도자료를 넣으면, 지면에 실릴 기사가 나옵니다 · Powered by Upstage</p>
+    <a class="logo" href="{{ url_for('index') }}">보도자료<span>→</span>기사</a>
+    <p class="tagline">보도자료를 넣으면, 지면에 실릴 기사 초안이 나옵니다</p>
     <div class="double-rule"></div>
   </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
-  <footer>press2article · Upstage Hackathon</footer>
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+
+  <footer class="footer">press2article · Powered by Upstage Studio Agent</footer>
+
   <script>
-    const d = new Date();
-    document.getElementById('today').textContent =
-      `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${'일월화수목금토'[d.getDay()]}요일`;
+    const today = document.getElementById('today');
+    if (today) {
+      const d = new Date();
+      today.textContent = `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${'일월화수목금토'[d.getDay()]}요일`;
+    }
   </script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>
