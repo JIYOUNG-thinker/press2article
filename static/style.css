@@ -170,3 +170,21 @@ textarea { min-height: 260px; resize: vertical; padding: 14px; line-height: 1.7;
   .col-head { display: none; }
   mark { background: none; }
 }
+
+/* ---------- 에이전트 원본 결과 ---------- */
+.raw-link { margin-left: 12px; font-family: var(--sans); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.raw-tag { font-size: 13px; font-weight: 700; color: #fff; background: var(--accent); padding: 6px 12px; }
+.raw { max-width: 1080px; width: 100%; margin: 0 auto; padding: 36px 20px 64px; display: flex; flex-direction: column; gap: 24px; }
+.raw .intro h1 { margin: 0; font-family: var(--serif); font-size: 28px; }
+.raw .intro p { margin: 8px 0 0; color: var(--muted); }
+.raw-index { display: flex; flex-wrap: wrap; gap: 8px; }
+.raw-index a { padding: 8px 14px; border: 1px solid var(--ink); color: var(--ink); text-decoration: none; font-size: 14px; }
+.raw-index a:hover { background: var(--ink); color: #fff; }
+.raw-step { background: #fff; border: 1px solid var(--rule); scroll-margin-top: 16px; }
+.raw-step-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; background: #EFEBE1; border-bottom: 1px solid var(--rule); }
+.raw-step-head h2 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 16px; font-family: ui-monospace, Menlo, monospace; }
+.raw-step-head .num { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; background: var(--ink); color: #fff; font-family: var(--sans); font-size: 13px; }
+.raw-meta { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+.btn-small { height: 36px; min-width: 64px; padding: 0 12px; border: 1px solid var(--ink); background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+.raw-step pre { margin: 0; padding: 18px; max-height: 560px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.65; color: #2A2925; }

@@ -13,11 +13,14 @@ import re
 import time
 import uuid
 import zipfile
+from collections import OrderedDict
 from xml.sax.saxutils import escape
 
 from dotenv import load_dotenv
 from flask import Flask, redirect, render_template, request, url_for
 from openai import OpenAI
+
+from hwp_reader import HwpError, hangul_to_text
 
 load_dotenv()
 
@@ -30,9 +33,18 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
 
 # 생성된 기사를 잠시 보관 (해커톤 데모용 메모리 저장소 — 서버를 끄면 사라짐)
-ARTICLES: dict[str, dict] = {}
+# 업로드 파일(최대 50MB)까지 들고 있으므로 최근 MAX_ARTICLES건만 남기고 오래된 것부터 지움
+MAX_ARTICLES = int(os.getenv("MAX_ARTICLES", 20))
+ARTICLES: "OrderedDict[str, dict]" = OrderedDict()
 
-ALLOWED_EXT = {"pdf", "docx", "pptx", "xlsx", "png", "jpg", "jpeg", "bmp", "tiff", "heic", "txt"}
+
+def save_article(article_id: str, item: dict) -> None:
+    ARTICLES[article_id] = item
+    while len(ARTICLES) > MAX_ARTICLES:
+        ARTICLES.popitem(last=False)
+
+ALLOWED_EXT = {"pdf", "docx", "pptx", "xlsx", "png", "jpg", "jpeg", "bmp", "tiff", "heic", "txt",
+               "hwp", "hwpx"}
 
 # Studio 워크플로우의 '보도자료유형분류' 노드와 같은 목록
 PRESS_TYPES = [
@@ -44,6 +56,16 @@ PRESS_TYPES = [
 # ──────────────────────────────────────────────
 # 입력 준비
 # ──────────────────────────────────────────────
+def decode_text(data: bytes) -> str:
+    """TXT 바이트를 글자로. 관공서 TXT는 CP949(EUC-KR)인 경우가 많아 UTF-8 실패 시 CP949로 다시 읽음."""
+    for enc in ("utf-8-sig", "cp949"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 def text_to_docx(text: str) -> bytes:
     """붙여넣은 텍스트를 최소한의 Word(.docx) 파일로 변환 (에이전트는 TXT를 받지 않음)."""
     paras = "".join(
@@ -330,12 +352,15 @@ def compare(source: str, paragraphs: list[str]) -> dict:
 # 라우트
 # ──────────────────────────────────────────────
 def _build(item: dict, steps: list[tuple[str, str]], forced_type: str | None = None):
+    item["steps"] = steps  # 에이전트 원본 결과 (원본 결과 페이지에서 그대로 보여줌)
     article = to_article(steps[-1][1])
     if not item.get("source_fixed"):
         item["source"] = find_source(steps) or item.get("source", "")
     item["article"] = article
     item["titles"] = title_candidates(article)
-    item["detected"] = detect_type(steps) or "기타"
+    # AI가 처음 인식한 유형은 보존 (다시 만들기 땐 유형 힌트 때문에 분류 결과가 강제 유형을 따라가므로)
+    if "detected" not in item:
+        item["detected"] = detect_type(steps) or "기타"
     item["type"] = forced_type or item["detected"]
     paras = ([article["lead"]] if article["lead"] else []) + article["body"]
     item["cmp"] = compare(item["source"], paras)
@@ -361,16 +386,16 @@ def generate():
         item = {"outlet": outlet or "", "source": "", "source_fixed": False}
         if upload and upload.filename:
             ext = upload.filename.rsplit(".", 1)[-1].lower()
-            if ext in ("hwp", "hwpx"):
-                raise ValueError("HWP 파일은 에이전트가 읽지 못해요. 한글에서 'PDF로 저장'한 뒤 올려주세요.")
             if ext not in ALLOWED_EXT:
                 raise ValueError(f"지원하지 않는 파일 형식입니다: .{ext}")
             data = upload.read()
             if ext == "txt":
-                text = data.decode("utf-8", errors="ignore")
+                # 에이전트는 TXT를 받지 않음 → Word 문서로 바꿔서 전달
+                text = decode_text(data)
                 item.update(filename=upload.filename, file=("press_release.docx", text_to_docx(text)),
                             source=text, source_fixed=True)
             else:
+                # PDF·DOCX·이미지·HWP·HWPX는 에이전트가 직접 읽음
                 item.update(filename=upload.filename, file=(upload.filename, data))
         elif pasted:
             item.update(filename=None, file=("press_release.docx", text_to_docx(pasted)),
@@ -378,13 +403,22 @@ def generate():
         else:
             raise ValueError("보도자료 파일을 첨부하거나 내용을 붙여넣어 주세요.")
 
-        steps = run_agent(*item["file"])
+        try:
+            steps = run_agent(*item["file"])
+        except Exception as e:
+            # 한글 파일을 에이전트가 거부한 경우에만: 본문 글자를 꺼내 Word 문서로 바꿔 다시 시도
+            ext = (item.get("filename") or "").rsplit(".", 1)[-1].lower()
+            if ext not in ("hwp", "hwpx") or not re.search(r"415|unsupported|format", str(e), re.I):
+                raise
+            text = hangul_to_text(item["filename"], item["file"][1])
+            item.update(file=("press_release.docx", text_to_docx(text)), source=text, source_fixed=True)
+            steps = run_agent(*item["file"])
         _build(item, steps)
     except Exception as e:  # 데모용: 오류를 화면에 그대로 보여줌
         return render_template("index.html", ready=True, error=str(e))
 
     article_id = uuid.uuid4().hex[:10]
-    ARTICLES[article_id] = item
+    save_article(article_id, item)
     return redirect(url_for("article", article_id=article_id))
 
 
@@ -395,6 +429,32 @@ def article(article_id):
         return redirect(url_for("index"))
     return render_template("article.html", id=article_id, types=PRESS_TYPES,
                            error=request.args.get("error"), **item)
+
+
+def _pretty(text: str) -> tuple[str, bool]:
+    """JSON이면 들여쓰기해서 보기 좋게, 아니면 그대로. (텍스트, JSON 여부)"""
+    try:
+        data = json.loads(text)
+        if isinstance(data, str):  # 문자열이 JSON으로 한 번 더 감싸진 경우
+            return data, False
+        return json.dumps(data, ensure_ascii=False, indent=2), True
+    except (ValueError, json.JSONDecodeError):
+        return text, False
+
+
+@app.route("/article/<article_id>/raw")
+def raw(article_id):
+    """Upstage 에이전트가 돌려준 결과를 가공 없이 단계별로 보여주는 페이지."""
+    item = ARTICLES.get(article_id)
+    if not item:
+        return redirect(url_for("index"))
+    steps = []
+    for i, (name, text) in enumerate(item.get("steps", []), 1):
+        shown, is_json = _pretty(text)
+        steps.append({"no": i, "name": name or f"단계 {i}", "text": shown,
+                      "is_json": is_json, "chars": len(text)})
+    return render_template("raw.html", id=article_id, steps=steps,
+                           filename=item.get("filename"), type=item.get("type"))
 
 
 @app.route("/article/<article_id>/regenerate", methods=["POST"])

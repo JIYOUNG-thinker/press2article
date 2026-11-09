@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}에이전트 원본 결과 | 보도자료 → 기사{% endblock %}
+
+{% block header %}
+<header class="topbar">
+  <div class="topbar-row">
+    <a class="back" href="{{ url_for('article', article_id=id) }}">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+      기사로 돌아가기
+    </a>
+    <a class="logo small" href="{{ url_for('index') }}">보도자료<span>→</span>기사</a>
+    <span class="raw-tag">Upstage 원본 결과</span>
+  </div>
+  <div class="double-rule"></div>
+</header>
+{% endblock %}
+
+{% block content %}
+<main class="raw">
+  <div class="intro">
+    <h1>에이전트가 돌려준 결과</h1>
+    <p>Upstage Studio 에이전트의 각 단계 결과를 가공 없이 그대로 보여줘요.{% if filename %} · 원본: {{ filename }}{% endif %}</p>
+  </div>
+
+  {% if steps %}
+    <nav class="raw-index" aria-label="단계 목록">
+      {% for s in steps %}<a href="#step-{{ s.no }}">{{ s.no }}. {{ s.name }}</a>{% endfor %}
+    </nav>
+
+    {% for s in steps %}
+    <section class="raw-step" id="step-{{ s.no }}">
+      <div class="raw-step-head">
+        <h2><span class="num">{{ s.no }}</span>{{ s.name }}</h2>
+        <div class="raw-meta">
+          <span>{{ 'JSON' if s.is_json else '텍스트' }} · {{ '{:,}'.format(s.chars) }}자</span>
+          <button type="button" class="btn-small" data-copy="raw-{{ s.no }}">복사</button>
+        </div>
+      </div>
+      <pre id="raw-{{ s.no }}">{{ s.text }}</pre>
+    </section>
+    {% endfor %}
+  {% else %}
+    <div class="alert">이 기사에는 저장된 에이전트 결과가 없어요. 새 보도자료로 다시 만들어 보세요.</div>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => {
+    const text = document.getElementById(b.dataset.copy).innerText;
+    try { await navigator.clipboard.writeText(text); b.textContent = '복사됨 ✔'; }
+    catch { b.textContent = '복사 실패'; }
+    setTimeout(() => b.textContent = '복사', 1500);
+  }));
+</script>
+{% endblock %}

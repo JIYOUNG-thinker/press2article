@@ -38,7 +38,7 @@ Upstage 해커톤 출품작 · Upstage Studio 에이전트 기반
 ```bash
 pip3 install -r requirements.txt
 cp .env.example .env      # .env를 열어 아래 값 입력
-PORT=5001 python3 app.py
+python3 app.py
 ```
 
 브라우저에서 http://127.0.0.1:5001 접속
@@ -59,14 +59,17 @@ Upstage Studio 워크플로우 화면 → **⋯ → 코드** 패널에서 값을
 
 ## 지원 형식
 
-PDF, DOCX, PPTX, XLSX, PNG, JPG, BMP, TIFF, HEIC, TXT(자동 변환)
-HWP는 에이전트가 직접 읽지 못하므로 한글에서 **PDF로 저장**한 뒤 올려주세요.
+HWP, HWPX, PDF, DOCX, PPTX, XLSX, PNG, JPG, BMP, TIFF, HEIC, TXT
+
+- **HWP·HWPX**: Upstage Studio 에이전트가 직접 읽습니다. 만약 에이전트가 파일을 거부하면 서버(`hwp_reader.py`)가 본문 텍스트(표 안 글자, 머리말, 각주 포함)를 꺼내 Word 문서로 바꿔 다시 시도합니다.
+- 암호가 걸린 문서, 배포용 문서는 읽을 수 없으니 한글에서 **PDF로 저장**한 뒤 올려주세요.
 
 ## 프로젝트 구조
 
 ```
 press2article/
-├── app.py               # Flask 서버, Agents API 호출, 결과 파싱
+├── app.py               # Flask 서버, Agents API 호출, 결과 파싱, 원문-기사 비교
+├── hwp_reader.py        # 한글(HWP/HWPX) 본문 텍스트 추출 (예비용)
 ├── templates/
 │   ├── base.html        # 공통 레이아웃(마스트헤드)
 │   ├── index.html       # 보도자료 첨부 페이지
