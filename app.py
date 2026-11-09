@@ -18,6 +18,9 @@ UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY", "")
 SOLAR_MODEL = os.getenv("SOLAR_MODEL", "solar-pro4")
 # Upstage Studio에서 만든 에이전트(워크플로우) ID. 있으면 Agents API로 실행
 UPSTAGE_AGENT_ID = os.getenv("UPSTAGE_AGENT_ID", "").strip()
+UPSTAGE_CONFIG_ID = os.getenv("UPSTAGE_CONFIG_ID", "").strip()
+# 에이전트가 속한 Studio 프로젝트 ID (proj_로 시작). 모든 요청에 x-project-id 헤더로 보냄
+UPSTAGE_PROJECT_ID = os.getenv("UPSTAGE_PROJECT_ID", "").strip()
 PARSE_URL = "https://api.upstage.ai/v1/document-digitization"
 
 app = Flask(__name__)
@@ -94,14 +97,51 @@ def to_article(raw: str) -> dict:
             "lead": "", "body": lines[1:], "keywords": [], "fact_check": []}
 
 
-def run_agent(file_storage, style: str, outlet: str) -> dict:
-    """Upstage Agents API: 파일 업로드 → Studio 에이전트 실행 → 결과 폴링."""
-    import time
-    client = OpenAI(api_key=UPSTAGE_API_KEY, base_url="https://api.upstage.ai/v2")
-    uploaded = client.files.create(
-        file=(file_storage.filename, file_storage.stream.read()),
-        purpose="user_data",
+def text_to_docx(text: str) -> bytes:
+    """붙여넣은 텍스트를 최소한의 Word(.docx) 파일로 변환 (외부 라이브러리 없이)."""
+    import io
+    import zipfile
+    from xml.sax.saxutils import escape
+
+    paras = "".join(
+        f'<w:p><w:r><w:t xml:space="preserve">{escape(line)}</w:t></w:r></w:p>'
+        for line in text.splitlines()
     )
+    files = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            '</Types>'),
+        "_rels/.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="word/document.xml"/></Relationships>'),
+        "word/document.xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            f'<w:body>{paras}</w:body></w:document>'),
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, content in files.items():
+            z.writestr(name, content)
+    return buf.getvalue()
+
+
+def run_agent(filename: str, data: bytes) -> dict:
+    """Upstage Agents API (Studio '코드' 패널 안내와 같은 방식)
+    파일 업로드 → Studio 에이전트 Job 생성 → 상태 폴링 → 결과 파싱."""
+    import time
+    headers = {"x-project-id": UPSTAGE_PROJECT_ID} if UPSTAGE_PROJECT_ID else None
+    client = OpenAI(api_key=UPSTAGE_API_KEY, base_url="https://api.upstage.ai/v2",
+                    default_headers=headers)
+    uploaded = client.files.create(file=(filename, data), purpose="user_data")
     job = client.responses.create(
         model=UPSTAGE_AGENT_ID,
         include=["last"],
@@ -109,14 +149,17 @@ def run_agent(file_storage, style: str, outlet: str) -> dict:
             "role": "user",
             "content": [{"type": "input_file", "file_id": uploaded.id}],
         }],
+        extra_body={"config_id": UPSTAGE_CONFIG_ID} if UPSTAGE_CONFIG_ID else None,
     )
-    for _ in range(90):  # 최대 약 3분 대기
+    for _ in range(150):  # 최대 약 5분 대기
         if job.status not in ("queued", "in_progress"):
             break
         time.sleep(2)
-        job = client.responses.retrieve(job.id)
+        job = client.responses.retrieve(job.id, include=["last"])
     if job.status != "completed":
         raise RuntimeError(f"에이전트 실행 실패 (status={job.status}, error={job.error})")
+    if not job.output_text:
+        raise RuntimeError("에이전트가 결과(output_text)를 돌려주지 않았습니다. Studio 워크플로우의 마지막 노드를 확인하세요.")
     return to_article(job.output_text)
 
 
@@ -164,11 +207,24 @@ def generate():
         if has_file and ext not in ALLOWED_EXT:
             raise ValueError(f"지원하지 않는 파일 형식입니다: .{ext}")
 
-        if has_file and ext != "txt" and UPSTAGE_AGENT_ID and not pasted:
-            # 1순위: Studio에서 만든 에이전트(Agents API)
-            article = run_agent(upload, style, outlet)
-            press_text = f"(첨부 파일 '{upload.filename}'을 Upstage 에이전트가 직접 처리)"
-            engine = f"Upstage Agent ({UPSTAGE_AGENT_ID})"
+        if UPSTAGE_AGENT_ID:
+            # 1순위: Studio에서 만든 에이전트(Agents API) — 해커톤 키는 이 방식만 사용 가능
+            if has_file and ext in ("hwp", "hwpx"):
+                raise ValueError("HWP 파일은 에이전트가 읽지 못해요. 한글에서 'PDF로 저장'한 뒤 올려주세요.")
+            if has_file and ext == "txt":
+                press_text = upload.read().decode("utf-8", errors="ignore")
+                fname, data = "press_release.docx", text_to_docx(press_text)
+            elif has_file:
+                fname, data = upload.filename, upload.read()
+                press_text = f"(첨부 파일 '{fname}'을 Upstage 에이전트가 직접 처리)"
+            elif pasted:
+                # 에이전트는 TXT를 받지 않으므로 붙여넣은 텍스트를 Word 파일로 만들어 전달
+                fname, data = "press_release.docx", text_to_docx(pasted)
+                press_text = pasted
+            else:
+                raise ValueError("보도자료 파일을 첨부하거나 내용을 붙여넣어 주세요.")
+            article = run_agent(fname, data)
+            engine = "Upstage Studio Agent"
         else:
             # 2순위: Document Parse + Solar 직접 호출
             if has_file:
