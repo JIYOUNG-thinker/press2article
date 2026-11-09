@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}보도자료 → 기사{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="masthead">
+    <div class="date" id="today"></div>
+    <h1><a href="{{ url_for('index') }}">보도자료<span>→</span>기사</a></h1>
+    <p class="tagline">보도자료를 넣으면, 지면에 실릴 기사가 나옵니다 · Powered by Upstage</p>
+    <div class="double-rule"></div>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>press2article · Upstage Hackathon</footer>
+  <script>
+    const d = new Date();
+    document.getElementById('today').textContent =
+      `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${'일월화수목금토'[d.getDay()]}요일`;
+  </script>
+</body>
+</html>

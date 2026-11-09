@@ -1,0 +1,12 @@
+# API 키가 들어있는 파일 — 절대 올리지 않기
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / 에디터
+.DS_Store
+.vscode/

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="steps">
+  <div class="step"><b>① 보도자료 첨부</b><small>PDF·HWP·DOCX·이미지 또는 텍스트 붙여넣기</small></div>
+  <div class="step"><b>② AI 기사 작성</b><small>Upstage가 문서를 읽고 기사로 재작성</small></div>
+  <div class="step"><b>③ 기사 확인</b><small>제목·리드·본문과 팩트체크 포인트</small></div>
+</div>
+
+{% if not has_key %}
+  <div class="alert">⚠ UPSTAGE_API_KEY가 설정되지 않았습니다. <code>.env</code> 파일에 API 키를 넣고 서버를 다시 실행하세요.</div>
+{% endif %}
+{% if error %}
+  <div class="alert">⚠ {{ error }}</div>
+{% endif %}
+
+<form class="card" action="{{ url_for('generate') }}" method="post" enctype="multipart/form-data" id="form">
+  <span class="label">보도자료 파일</span>
+  <label class="dropzone" id="dropzone">
+    <span class="icon">📄</span>
+    <span id="dz-text">여기를 눌러 파일을 선택하거나 끌어다 놓으세요</span>
+    <span class="hint">PDF, HWP, HWPX, DOCX, PPTX, PNG, JPG, TXT · 최대 50MB</span>
+    <input type="file" name="press_file" id="file"
+           accept=".pdf,.hwp,.hwpx,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff,.heic,.txt">
+  </label>
+
+  <div class="or">— 또는 —</div>
+
+  <label class="label" for="press_text">보도자료 내용 붙여넣기</label>
+  <textarea name="press_text" id="press_text" placeholder="보도자료 본문을 그대로 붙여넣으세요."></textarea>
+
+  <div class="row">
+    <div>
+      <label class="label" for="style">기사 유형</label>
+      <select name="style" id="style">
+        {% for key, label in styles.items() %}
+          <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="label" for="outlet">매체명 (선택)</label>
+      <input type="text" name="outlet" id="outlet" placeholder="예: 경북매일신문">
+    </div>
+  </div>
+
+  <button class="btn" type="submit">기사 작성하기</button>
+</form>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div>기사를 쓰고 있습니다…</div>
+  <small>문서 분석과 기사 작성에 30초~1분 정도 걸려요</small>
+</div>
+
+<script>
+  const fileInput = document.getElementById('file');
+  const dz = document.getElementById('dropzone');
+  const dzText = document.getElementById('dz-text');
+  const showName = () => {
+    if (fileInput.files.length) {
+      dzText.innerHTML = '<span class="filename"></span>';
+      dzText.firstChild.textContent = '✔ ' + fileInput.files[0].name;
+    }
+  };
+  fileInput.addEventListener('change', showName);
+  ['dragenter', 'dragover'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('drag'); }));
+  dz.addEventListener('drop', ev => { fileInput.files = ev.dataTransfer.files; showName(); });
+
+  document.getElementById('form').addEventListener('submit', ev => {
+    if (!fileInput.files.length && !document.getElementById('press_text').value.trim()) {
+      ev.preventDefault();
+      alert('보도자료 파일을 첨부하거나 내용을 붙여넣어 주세요.');
+      return;
+    }
+    document.getElementById('loading').classList.add('on');
+  });
+</script>
+{% endblock %}

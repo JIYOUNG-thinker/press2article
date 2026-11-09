@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ article.headline }} | 보도자료 → 기사{% endblock %}
+{% block content %}
+
+<div class="meta-bar">
+  <span class="tag">AI 작성 초안</span>
+  <span>{{ outlet }}</span>
+  <span>{{ style }}</span>
+  {% if filename %}<span>원본: {{ filename }}</span>{% endif %}
+  <span>엔진: {{ engine }}</span>
+</div>
+
+<div class="layout">
+  <article id="article">
+    <h2 class="headline">{{ article.headline }}</h2>
+    {% if article.subheadline %}<p class="sub">{{ article.subheadline }}</p>{% endif %}
+    <div class="byline">{{ outlet }} · AI 기자 초안 (데스크 검토 필요)</div>
+    {% if article.lead %}<p class="lead">{{ article.lead }}</p>{% endif %}
+    {% for para in article.body %}
+      <p>{{ para }}</p>
+    {% endfor %}
+  </article>
+
+  <aside>
+    {% if article.keywords %}
+    <div class="box">
+      <h3>키워드</h3>
+      <div class="chips">
+        {% for k in article.keywords %}<span class="chip">#{{ k }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if article.fact_check %}
+    <div class="box">
+      <h3>기자 확인 사항</h3>
+      <ul class="factcheck">
+        {% for f in article.fact_check %}<li>{{ f }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="box actions">
+      <button class="btn ghost" id="copy">기사 복사</button>
+      <button class="btn ghost" onclick="window.print()">인쇄</button>
+    </div>
+    <a class="btn" href="{{ url_for('index') }}">새 보도자료 넣기</a>
+  </aside>
+</div>
+
+<details class="source">
+  <summary>보도자료 원문 보기</summary>
+  <pre>{{ source }}</pre>
+</details>
+
+<script>
+  document.getElementById('copy').addEventListener('click', async (e) => {
+    const text = document.getElementById('article').innerText;
+    try { await navigator.clipboard.writeText(text); e.target.textContent = '복사됨 ✔'; }
+    catch { e.target.textContent = '복사 실패'; }
+    setTimeout(() => e.target.textContent = '기사 복사', 1500);
+  });
+</script>
+{% endblock %}
