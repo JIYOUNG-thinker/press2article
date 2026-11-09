@@ -76,25 +76,66 @@ def parse_document(file_storage) -> str:
     return content.get("markdown") or content.get("text") or content.get("html", "")
 
 
-def to_article(raw: str) -> dict:
-    """모델 출력(JSON 또는 일반 텍스트)을 화면용 기사 dict로 변환."""
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`").removeprefix("json").strip()
-    try:
-        start, end = raw.find("{"), raw.rfind("}")
-        data = json.loads(raw[start:end + 1])
-        if "headline" in data:
-            data.setdefault("body", [])
-            if isinstance(data["body"], str):
-                data["body"] = [p for p in data["body"].split("\n") if p.strip()]
+def _clean(text: str) -> str:
+    """출처 표시(【†1】), 마크다운 굵게(**) 등 화면에 불필요한 기호 제거."""
+    import re
+    text = re.sub(r"【[^】]*】", "", text)
+    text = text.replace("**", "")
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def to_article(raw) -> dict:
+    """모델/에이전트 출력(JSON 객체, JSON 문자열, 마크다운 텍스트)을 화면용 기사 dict로 변환."""
+    # 1) JSON으로 한 번 이상 감싸져 온 경우 벗겨내기 (예: "\"# 제목\\n\\n본문\"")
+    for _ in range(3):
+        if not isinstance(raw, str):
+            break
+        s = raw.strip()
+        if s.startswith("```"):
+            s = s.strip("`").removeprefix("json").strip()
+        try:
+            raw = json.loads(s)
+        except (ValueError, json.JSONDecodeError):
+            raw = s
+            break
+
+    # 2) JSON 객체로 온 경우
+    if isinstance(raw, dict):
+        if "headline" in raw:
+            data = dict(raw)
+            body = data.get("body", [])
+            if isinstance(body, str):
+                body = body.split("\n")
+            data["body"] = [_clean(p) for p in body if str(p).strip()]
+            for k in ("headline", "subheadline", "lead"):
+                data[k] = _clean(str(data.get(k, "")))
+            data.setdefault("keywords", [])
+            data.setdefault("fact_check", [])
             return data
-    except (ValueError, json.JSONDecodeError):
-        pass
-    # JSON이 아니면 첫 줄을 제목, 나머지를 본문으로
-    lines = [l.strip().lstrip("#").strip() for l in raw.splitlines() if l.strip()]
-    return {"headline": lines[0] if lines else "생성된 기사", "subheadline": "",
-            "lead": "", "body": lines[1:], "keywords": [], "fact_check": []}
+        # headline 키가 없으면 가장 긴 문자열 값을 기사 본문으로 사용
+        texts = [v for v in raw.values() if isinstance(v, str)]
+        raw = max(texts, key=len) if texts else json.dumps(raw, ensure_ascii=False)
+
+    # 3) 텍스트/마크다운: '# 제목'은 제목, '## 부제'는 부제, 나머지는 본문 문단
+    text = str(raw).replace("\\n", "\n")
+    headline, sub, body = "", "", []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line == "---":
+            continue
+        if line.startswith("# ") and not headline:
+            headline = _clean(line[2:])
+        elif line.startswith("##") and not sub and not body:
+            sub = _clean(line.lstrip("#"))
+        else:
+            cleaned = _clean(line.lstrip("#").lstrip("-").strip())
+            if cleaned:
+                body.append(cleaned)
+    if not headline and body:
+        headline = body.pop(0)
+    return {"headline": headline or "생성된 기사", "subheadline": sub,
+            "lead": body.pop(0) if len(body) > 1 else "", "body": body,
+            "keywords": [], "fact_check": []}
 
 
 def text_to_docx(text: str) -> bytes:
